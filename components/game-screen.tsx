@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 
@@ -143,29 +143,6 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
 
   const currentQuestion = questions[currentQuestionIndex];
 
-  // Preload next 2 questions' images for faster loading
-  const imagesToPreload = useMemo(() => {
-    const urls: string[] = [];
-    for (let i = 1; i <= 2; i++) {
-      const nextQ = questions[currentQuestionIndex + i];
-      if (nextQ) {
-        if (nextQ.logoImage) urls.push(nextQ.logoImage);
-        nextQ.options.forEach((opt) => {
-          if (opt.image_url) urls.push(opt.image_url);
-        });
-      }
-    }
-    return urls;
-  }, [questions, currentQuestionIndex]);
-
-  // Preload images in the background
-  useEffect(() => {
-    imagesToPreload.forEach((url) => {
-      const img = new window.Image();
-      img.src = url;
-    });
-  }, [imagesToPreload]);
-
   // TIMER LOGIC
   useEffect(() => {
     if (!gameActive) return;
@@ -235,27 +212,34 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         Score: {score}
       </div>
 
-      <h1 className="text-white text-4xl font-bold text-center mb-12 max-w-4xl">
-        {currentQuestion.type === "text_options"
-          ? "WHICH LOGO IS THIS?"
-          : "WHICH OF THE FOLLOWING IS REAL?"}
+      <h1 className="text-white text-4xl font-bold text-center mb-12 w-300">
+        {currentQuestion.type === "text_options" ? (
+          "WHICH LOGO IS THIS?"
+        ) : (
+          <h1 className="text-white text-3xl font-bold mb-4">
+            Find the logo for:{" "}
+            <span className="text-green-400">
+              {
+                currentQuestion.options.find(
+                  (o) => o.id === currentQuestion.correctLogoId
+                )?.name
+              }
+            </span>
+          </h1>
+        )}
       </h1>
 
       <div className="flex flex-col items-center gap-8 w-full max-w-2xl">
         {currentQuestion.type === "text_options" ? (
           <>
             <div className="flex justify-center">
-              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4 relative overflow-hidden">
+              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4">
                 <Image
                   src={currentQuestion.logoImage || "/placeholder.svg"}
                   alt="Logo"
                   width={200}
                   height={200}
                   className="object-contain w-full h-full"
-                  priority
-                  loading="eager"
-                  placeholder="blur"
-                  blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBEQCEAwEPwAB//9k="
                 />
               </div>
             </div>
@@ -283,7 +267,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           </>
         ) : (
           <>
-            <h2 className="text-white text-3xl font-bold mb-4">
+            {/* <h2 className="text-white text-3xl font-bold mb-4">
               Find the logo for:{" "}
               <span className="text-green-400">
                 {
@@ -292,7 +276,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                   )?.name
                 }
               </span>
-            </h2>
+            </h2> */}
             <div className="grid grid-cols-2 gap-6 w-full">
               {currentQuestion.options.map((option) => (
                 <button
@@ -316,10 +300,6 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                     width={150}
                     height={150}
                     className="object-contain w-full h-full"
-                    priority
-                    loading="eager"
-                    placeholder="blur"
-                    blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBEQCEAwEPwAB//9k="
                   />
                 </button>
               ))}
