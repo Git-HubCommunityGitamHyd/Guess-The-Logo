@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 
@@ -143,6 +143,29 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
 
   const currentQuestion = questions[currentQuestionIndex];
 
+  // Preload next 2 questions' images for faster loading
+  const imagesToPreload = useMemo(() => {
+    const urls: string[] = [];
+    for (let i = 1; i <= 2; i++) {
+      const nextQ = questions[currentQuestionIndex + i];
+      if (nextQ) {
+        if (nextQ.logoImage) urls.push(nextQ.logoImage);
+        nextQ.options.forEach((opt) => {
+          if (opt.image_url) urls.push(opt.image_url);
+        });
+      }
+    }
+    return urls;
+  }, [questions, currentQuestionIndex]);
+
+  // Preload images in the background
+  useEffect(() => {
+    imagesToPreload.forEach((url) => {
+      const img = new window.Image();
+      img.src = url;
+    });
+  }, [imagesToPreload]);
+
   // TIMER LOGIC
   useEffect(() => {
     if (!gameActive) return;
@@ -222,7 +245,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         {currentQuestion.type === "text_options" ? (
           <>
             <div className="flex justify-center">
-              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4">
+              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4 relative overflow-hidden">
                 <Image
                   src={currentQuestion.logoImage || "/placeholder.svg"}
                   alt="Logo"
@@ -230,6 +253,9 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                   height={200}
                   className="object-contain w-full h-full"
                   priority
+                  loading="eager"
+                  placeholder="blur"
+                  blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBEQCEAwEPwAB//9k="
                 />
               </div>
             </div>
@@ -291,6 +317,9 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                     height={150}
                     className="object-contain w-full h-full"
                     priority
+                    loading="eager"
+                    placeholder="blur"
+                    blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBEQCEAwEPwAB//9k="
                   />
                 </button>
               ))}
