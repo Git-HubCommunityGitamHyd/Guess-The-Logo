@@ -27,7 +27,8 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<Question[]>([]);
 
-  const [timeLeft, setTimeLeft] = useState(60);
+  // FIX 1: Changed initial time from 60 to 180 (3 minutes)
+  const [timeLeft, setTimeLeft] = useState(180);
   const [score, setScore] = useState(0);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -60,33 +61,39 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
     [username, onGameEnd, isSaving]
   );
 
+  // --- HELPER: Format Time (MM:SS) ---
+  // FIX 2: Added helper to show "02:59" instead of "179:00"
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  };
+
   // FETCH DATA
   useEffect(() => {
     async function fetchGameData() {
       try {
         setLoading(true);
-        // 1. Fetch Logos
         const { data: logosData, error: logosError } = await supabase
           .from("logostable")
           .select("*");
         if (logosError) throw logosError;
         if (!logosData) throw new Error("No logos found");
 
-        // 2. Fetch Questions
         const { data: questionsData, error: questionsError } = await supabase
           .from("questionstable")
           .select("*");
+
         if (questionsError) throw questionsError;
         if (!questionsData) throw new Error("No questions found");
 
-        // 3. Format Questions (Link IDs to Objects)
         const formattedQuestions: Question[] = questionsData.map((q) => {
           const correctLogo = logosData.find((l) => l.id === q.correct_logo_id);
           const options = (
             q.option_ids
               .map((id: string) => logosData.find((l) => l.id === id))
               .filter(Boolean) as Logo[]
-          ).sort(() => Math.random() - 0.5); // Randomize options position
+          ).sort(() => Math.random() - 0.5);
 
           return {
             id: q.id,
@@ -97,11 +104,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           };
         });
 
-        // ---------------------------------------------------------
-        // 4. NEW SORTING LOGIC: 2-2 PATTERN
-        // ---------------------------------------------------------
-
-        // Step A: Separate into two piles
+        // SORTING LOGIC: 2-2 PATTERN
         const textQs = formattedQuestions.filter(
           (q) => q.type === "text_options"
         );
@@ -109,22 +112,16 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           (q) => q.type === "image_options"
         );
 
-        // Step B: Shuffle the piles internally (so content is random)
         textQs.sort(() => Math.random() - 0.5);
         imageQs.sort(() => Math.random() - 0.5);
 
-        // Step C: Interleave them (2 Text, then 2 Image, repeat)
         const patternedQuestions: Question[] = [];
-        let t = 0; // index for text questions
-        let i = 0; // index for image questions
+        let t = 0;
+        let i = 0;
 
-        // Keep going while we still have questions in EITHER pile
         while (t < textQs.length || i < imageQs.length) {
-          // Push up to 2 Text Questions
           if (t < textQs.length) patternedQuestions.push(textQs[t++]);
           if (t < textQs.length) patternedQuestions.push(textQs[t++]);
-
-          // Push up to 2 Image Questions
           if (i < imageQs.length) patternedQuestions.push(imageQs[i++]);
           if (i < imageQs.length) patternedQuestions.push(imageQs[i++]);
         }
@@ -190,42 +187,41 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   };
 
   if (loading)
-    return <div className="text-white text-center mt-20">Loading...</div>;
+    return (
+      <div className="text-white text-center mt-20 text-xl font-bold animate-pulse">
+        Loading Questions...
+      </div>
+    );
   if (isSaving)
     return (
-      <div className="text-white text-center mt-20 animate-pulse">
+      <div className="text-white text-center mt-20 text-xl font-bold animate-pulse">
         Saving Score...
       </div>
     );
   if (!currentQuestion) return null;
 
-  const timerColor = timeLeft <= 10 ? "bg-red-500" : "bg-green-500";
+  const timerColor = timeLeft <= 30 ? "bg-red-500" : "bg-green-500"; // Changed warning color to last 30s
 
   return (
-    <main className="min-h-screen bg-[#1a1a1a] flex flex-col items-center justify-center p-4">
+    <div className="w-full flex flex-col items-center justify-center p-4">
+      {/* Timer Badge */}
       <div
-        className={`fixed top-6 right-6 ${timerColor} rounded-full px-6 py-3 font-bold text-xl text-black`}
+        className={`fixed top-6 right-6 ${timerColor} rounded-full px-6 py-3 font-bold text-xl text-black z-20`}
       >
-        {String(timeLeft).padStart(2, "0")}:00
+        {/* FIX 3: Use formatTime function here */}
+        {formatTime(timeLeft)}
       </div>
-      <div className="absolute top-6 left-6 text-white text-lg font-bold">
+
+      {/* Score */}
+      <div className="absolute top-6 left-6 text-white text-lg font-bold z-20">
         Score: {score}
       </div>
 
-      <h1 className="text-white text-4xl font-bold text-center mb-12 w-300">
+      <h1 className="text-white text-4xl font-bold text-center mb-12 max-w-4xl drop-shadow-md w-full">
         {currentQuestion.type === "text_options" ? (
           "WHICH LOGO IS THIS?"
         ) : (
-          <h1 className="text-white text-3xl font-bold mb-4">
-            Find the logo for:{" "}
-            <span className="text-green-400">
-              {
-                currentQuestion.options.find(
-                  (o) => o.id === currentQuestion.correctLogoId
-                )?.name
-              }
-            </span>
-          </h1>
+          <div className="h-10 w-full" aria-hidden="true" />
         )}
       </h1>
 
@@ -233,13 +229,14 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         {currentQuestion.type === "text_options" ? (
           <>
             <div className="flex justify-center">
-              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4">
+              <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4 shadow-xl">
                 <Image
                   src={currentQuestion.logoImage || "/placeholder.svg"}
                   alt="Logo"
                   width={200}
                   height={200}
                   className="object-contain w-full h-full"
+                  priority
                 />
               </div>
             </div>
@@ -258,7 +255,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                         option.id === currentQuestion.correctLogoId
                       ? "bg-green-500"
                       : "bg-[#505050] hover:bg-[#606060]"
-                  } text-white text-xl font-bold py-6 rounded-full transition-colors disabled:cursor-not-allowed`}
+                  } text-white text-xl font-bold py-6 rounded-full transition-colors disabled:cursor-not-allowed shadow-lg`}
                 >
                   {option.name}
                 </button>
@@ -267,7 +264,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           </>
         ) : (
           <>
-            {/* <h2 className="text-white text-3xl font-bold mb-4">
+            <h2 className="text-white text-3xl font-bold mb-4 drop-shadow-md text-center max-w-lg mx-auto">
               Find the logo for:{" "}
               <span className="text-green-400">
                 {
@@ -276,8 +273,9 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                   )?.name
                 }
               </span>
-            </h2> */}
-            <div className="grid grid-cols-2 gap-6 w-full">
+            </h2>
+
+            <div className="grid grid-cols-2 gap-6 w-full max-w-2xl mx-auto">
               {currentQuestion.options.map((option) => (
                 <button
                   key={option.id}
@@ -292,14 +290,15 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                         option.id === currentQuestion.correctLogoId
                       ? "border-green-500"
                       : "border-[#505050]"
-                  } border-4 rounded-3xl overflow-hidden bg-white flex items-center justify-center h-48 transition-all p-4`}
+                  } border-4 rounded-2xl overflow-hidden bg-white flex items-center justify-center w-80 h-52 transition-all p-4 shadow-xl hover:scale-105`}
                 >
                   <Image
                     src={option.image_url}
                     alt="Option"
                     width={150}
-                    height={150}
+                    height={100}
                     className="object-contain w-full h-full"
+                    priority
                   />
                 </button>
               ))}
@@ -307,6 +306,6 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           </>
         )}
       </div>
-    </main>
+    </div>
   );
 }
