@@ -1,8 +1,33 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
+
+const BLUR_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==";
+
+// New component to handle individual image loading errors
+const OptionImage = ({ src, alt }: { src: string; alt: string }) => {
+  const [imgSrc, setImgSrc] = useState(src);
+
+  return (
+    <Image
+      src={imgSrc}
+      alt={alt}
+      width={150}
+      height={100}
+      className="object-contain w-full h-full"
+      priority
+      loading="eager"
+      placeholder="blur"
+      blurDataURL={BLUR_DATA_URL}
+      onError={() => {
+        setImgSrc("/placeholder.svg"); 
+      }}
+    />
+  );
+};
 
 interface Logo {
   id: string;
@@ -27,7 +52,6 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState<Question[]>([]);
 
-  // FIX 1: Changed initial time from 60 to 180 (3 minutes)
   const [timeLeft, setTimeLeft] = useState(180);
   const [score, setScore] = useState(0);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -37,7 +61,29 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   const [gameActive, setGameActive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // --- HELPER: End Game & Save Score ---
+  // --- PRELOAD LOGIC ---
+  const imagesToPreload = useMemo(() => {
+    const urls: string[] = [];
+    for (let i = 1; i <= 2; i++) {
+      const nextQ = questions[currentQuestionIndex + i];
+      if (nextQ) {
+        if (nextQ.logoImage) urls.push(nextQ.logoImage);
+        nextQ.options.forEach((opt) => {
+          if (opt.image_url) urls.push(opt.image_url);
+        });
+      }
+    }
+    return urls;
+  }, [questions, currentQuestionIndex]);
+
+  useEffect(() => {
+    imagesToPreload.forEach((url) => {
+      const img = new window.Image();
+      img.src = url;
+    });
+  }, [imagesToPreload]);
+
+  // --- GAME OVER LOGIC ---
   const handleGameOver = useCallback(
     async (finalScore: number) => {
       if (isSaving) return;
@@ -61,15 +107,55 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
     [username, onGameEnd, isSaving]
   );
 
-  // --- HELPER: Format Time (MM:SS) ---
-  // FIX 2: Added helper to show "02:59" instead of "179:00"
+  // --- NAVIGATION ---
+  const advanceToNextQuestion = useCallback(() => {
+    setSelectedAnswer(null);
+    setShowFeedback(false);
+    if (currentQuestionIndex < questions.length - 1) {
+      setCurrentQuestionIndex((prev) => prev + 1);
+    } else {
+      handleGameOver(score);
+    }
+  }, [currentQuestionIndex, questions.length, score, handleGameOver]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${String(secs).padStart(2, "0")}`;
   };
 
-  // FETCH DATA
+  // --- KEYBOARD LISTENER ---
+  const currentQuestion = questions[currentQuestionIndex];
+
+  useEffect(() => {
+    if (!gameActive || !currentQuestion) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showFeedback && e.key === "Enter") {
+        advanceToNextQuestion();
+        return;
+      }
+      if (!showFeedback) {
+        const keyMap: { [key: string]: number } = {
+          "1": 0,
+          "2": 1,
+          "3": 2,
+          "4": 3,
+        };
+        if (keyMap.hasOwnProperty(e.key)) {
+          const index = keyMap[e.key];
+          if (currentQuestion.options[index]) {
+            handleOptionSelect(currentQuestion.options[index].id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [gameActive, currentQuestion, showFeedback, advanceToNextQuestion]);
+
+  // --- DATA FETCHING ---
   useEffect(() => {
     async function fetchGameData() {
       try {
@@ -88,13 +174,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         if (!questionsData) throw new Error("No questions found");
 
         const formattedQuestions: Question[] = questionsData.map((q) => {
-          const correctLogo = logosData.find((l) => l.id === q.correct_logo_id);
-          const options = (
-            q.option_ids
-              .map((id: string) => logosData.find((l) => l.id === id))
-              .filter(Boolean) as Logo[]
-          ).sort(() => Math.random() - 0.5);
-
+          // ... (your existing mapping logic) ...
           return {
             id: q.id,
             type: q.question_type,
@@ -104,13 +184,18 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           };
         });
 
-        // SORTING LOGIC: 2-2 PATTERN
-        const textQs = formattedQuestions.filter(
-          (q) => q.type === "text_options"
-        );
-        const imageQs = formattedQuestions.filter(
-          (q) => q.type === "image_options"
-        );
+        const uniqueQuestions: Question[] = [];
+        const seenLogoIds = new Set<string>();
+
+        for (const q of formattedQuestions) {
+          if (!seenLogoIds.has(q.correctLogoId)) {
+            uniqueQuestions.push(q);
+            seenLogoIds.add(q.correctLogoId);
+          }
+        }
+
+        const textQs = uniqueQuestions.filter((q) => q.type === "text_options");
+        const imageQs = uniqueQuestions.filter((q) => q.type === "image_options");
 
         textQs.sort(() => Math.random() - 0.5);
         imageQs.sort(() => Math.random() - 0.5);
@@ -138,9 +223,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
     fetchGameData();
   }, []);
 
-  const currentQuestion = questions[currentQuestionIndex];
-
-  // TIMER LOGIC
+  // --- TIMER ---
   useEffect(() => {
     if (!gameActive) return;
     const timer = setInterval(() => {
@@ -156,26 +239,14 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
     return () => clearInterval(timer);
   }, [gameActive, score, handleGameOver]);
 
-  // FEEDBACK LOGIC
+  // --- FEEDBACK TIMER ---
   useEffect(() => {
     if (!showFeedback) return;
     const timer = setTimeout(() => {
-      setSelectedAnswer(null);
-      setShowFeedback(false);
-      if (currentQuestionIndex < questions.length - 1) {
-        setCurrentQuestionIndex((prev) => prev + 1);
-      } else {
-        handleGameOver(score);
-      }
-    }, 1000);
+      advanceToNextQuestion();
+    }, 500); 
     return () => clearTimeout(timer);
-  }, [
-    showFeedback,
-    currentQuestionIndex,
-    questions.length,
-    score,
-    handleGameOver,
-  ]);
+  }, [showFeedback, advanceToNextQuestion]);
 
   const handleOptionSelect = (optionId: string) => {
     if (selectedAnswer || !gameActive) return;
@@ -200,20 +271,19 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
     );
   if (!currentQuestion) return null;
 
-  const timerColor = timeLeft <= 30 ? "bg-red-500" : "bg-green-500"; // Changed warning color to last 30s
+  const timerColor = timeLeft <= 30 ? "bg-red-500" : "bg-green-500";
 
   return (
     <div className="w-full flex flex-col items-center justify-center p-4">
-      {/* Timer Badge */}
+      {/* Timer Badge (Fixed) */}
       <div
         className={`fixed top-6 right-6 ${timerColor} rounded-full px-6 py-3 font-bold text-xl text-black z-20`}
       >
-        {/* FIX 3: Use formatTime function here */}
         {formatTime(timeLeft)}
       </div>
 
-      {/* Score */}
-      <div className="absolute top-6 left-6 text-white text-lg font-bold z-20">
+      {/* FIX: Changed 'absolute' to 'fixed' to pin it to top-left of viewport */}
+      <div className="fixed top-6 left-6 text-white text-lg font-bold z-20">
         Score: {score}
       </div>
 
@@ -237,11 +307,14 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                   height={200}
                   className="object-contain w-full h-full"
                   priority
+                  loading="eager"
+                  placeholder="blur"
+                  blurDataURL={BLUR_DATA_URL}
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 w-full">
-              {currentQuestion.options.map((option) => (
+              {currentQuestion.options.map((option, index) => (
                 <button
                   key={option.id}
                   onClick={() => handleOptionSelect(option.id)}
@@ -255,8 +328,11 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                         option.id === currentQuestion.correctLogoId
                       ? "bg-green-500"
                       : "bg-[#505050] hover:bg-[#606060]"
-                  } text-white text-xl font-bold py-6 rounded-full transition-colors disabled:cursor-not-allowed shadow-lg`}
+                  } text-white text-xl font-bold py-6 rounded-full transition-colors duration-200 disabled:cursor-not-allowed shadow-lg relative`}
                 >
+                  <span className="absolute top-2 left-3 text-xs text-gray-400 opacity-50 font-mono border border-gray-500 rounded px-1.5">
+                    {index + 1}
+                  </span>
                   {option.name}
                 </button>
               ))}
@@ -276,7 +352,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
             </h2>
 
             <div className="grid grid-cols-2 gap-6 w-full max-w-2xl mx-auto">
-              {currentQuestion.options.map((option) => (
+              {currentQuestion.options.map((option, index) => (
                 <button
                   key={option.id}
                   onClick={() => handleOptionSelect(option.id)}
@@ -290,15 +366,15 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
                         option.id === currentQuestion.correctLogoId
                       ? "border-green-500"
                       : "border-[#505050]"
-                  } border-4 rounded-2xl overflow-hidden bg-white flex items-center justify-center w-80 h-52 transition-all p-4 shadow-xl hover:scale-105`}
+                  } border-4 rounded-2xl overflow-hidden bg-white flex items-center justify-center w-80 h-52 transition-all duration-200 p-4 shadow-xl hover:scale-105 relative`}
                 >
-                  <Image
-                    src={option.image_url}
-                    alt="Option"
-                    width={150}
-                    height={100}
-                    className="object-contain w-full h-full"
-                    priority
+                  <span className="absolute top-2 left-3 text-xs text-gray-400 font-mono border border-gray-300 rounded px-1.5 z-10 bg-white/80">
+                    {index + 1}
+                  </span>
+                  {/* Using the robust OptionImage component for safety */}
+                  <OptionImage 
+                    src={option.image_url} 
+                    alt={option.name} 
                   />
                 </button>
               ))}
