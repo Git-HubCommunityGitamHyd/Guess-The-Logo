@@ -12,9 +12,14 @@ const BLUR_DATA_URL =
 const OptionImage = ({ src, alt }: { src: string; alt: string }) => {
   const [imgSrc, setImgSrc] = useState(src);
 
+  const finalSrc =
+    imgSrc.startsWith("http")
+      ? optimizeImage(imgSrc, 150)
+      : imgSrc;
+
   return (
     <Image
-      src={optimizeImage(imgSrc, 150)}
+      src={finalSrc}
       alt={alt}
       width={150}
       height={100}
@@ -26,6 +31,7 @@ const OptionImage = ({ src, alt }: { src: string; alt: string }) => {
     />
   );
 };
+
 
 interface Logo {
   id: string;
@@ -69,16 +75,19 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         if (opt.image_url) urls.push(opt.image_url);
       });
     }
-    return urls;
+    return urls;  
   }, [questions, currentQuestionIndex]);
 
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     imagesToPreload.forEach((url) => {
       const img = new window.Image();
       img.src = optimizeImage(url, 200);
     });
   }, [imagesToPreload]);
+
 
 
   // --- GAME OVER LOGIC ---
