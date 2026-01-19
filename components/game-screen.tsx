@@ -33,6 +33,7 @@ const OptionImage = ({ src, alt }: { src: string; alt: string }) => {
 };
 
 
+
 interface Logo {
   id: string;
   name: string;
@@ -64,31 +65,6 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   const [isCorrect, setIsCorrect] = useState(false);
   const [gameActive, setGameActive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // --- PRELOAD LOGIC ---
-  const imagesToPreload = useMemo(() => {
-    const urls: string[] = [];
-    const nextQ = questions[currentQuestionIndex + 1];
-    if (nextQ) {
-      if (nextQ.logoImage) urls.push(nextQ.logoImage);
-      nextQ.options.slice(0, 2).forEach((opt) => {
-        if (opt.image_url) urls.push(opt.image_url);
-      });
-    }
-    return urls;  
-  }, [questions, currentQuestionIndex]);
-
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    imagesToPreload.forEach((url) => {
-      const img = new window.Image();
-      img.src = optimizeImage(url, 200);
-    });
-  }, [imagesToPreload]);
-
-
 
   // --- GAME OVER LOGIC ---
   const handleGameOver = useCallback(
