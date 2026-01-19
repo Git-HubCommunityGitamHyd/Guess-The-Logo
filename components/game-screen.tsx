@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
+import { optimizeImage } from "@/lib/image";
 
 const BLUR_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==";
@@ -13,18 +14,15 @@ const OptionImage = ({ src, alt }: { src: string; alt: string }) => {
 
   return (
     <Image
-      src={imgSrc}
+      src={optimizeImage(imgSrc, 150)}
       alt={alt}
       width={150}
       height={100}
       className="object-contain w-full h-full"
-      priority
-      loading="eager"
+      loading="lazy"
       placeholder="blur"
       blurDataURL={BLUR_DATA_URL}
-      onError={() => {
-        setImgSrc("/placeholder.svg"); 
-      }}
+      onError={() => setImgSrc("/placeholder.svg")}
     />
   );
 };
@@ -64,24 +62,24 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
   // --- PRELOAD LOGIC ---
   const imagesToPreload = useMemo(() => {
     const urls: string[] = [];
-    for (let i = 1; i <= 2; i++) {
-      const nextQ = questions[currentQuestionIndex + i];
-      if (nextQ) {
-        if (nextQ.logoImage) urls.push(nextQ.logoImage);
-        nextQ.options.forEach((opt) => {
-          if (opt.image_url) urls.push(opt.image_url);
-        });
-      }
+    const nextQ = questions[currentQuestionIndex + 1];
+    if (nextQ) {
+      if (nextQ.logoImage) urls.push(nextQ.logoImage);
+      nextQ.options.slice(0, 2).forEach((opt) => {
+        if (opt.image_url) urls.push(opt.image_url);
+      });
     }
     return urls;
   }, [questions, currentQuestionIndex]);
 
+
   useEffect(() => {
     imagesToPreload.forEach((url) => {
       const img = new window.Image();
-      img.src = url;
+      img.src = optimizeImage(url, 200);
     });
   }, [imagesToPreload]);
+
 
   // --- GAME OVER LOGIC ---
   const handleGameOver = useCallback(
@@ -173,8 +171,21 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         if (questionsError) throw questionsError;
         if (!questionsData) throw new Error("No questions found");
 
+        // 1. Map raw data to Question objects
         const formattedQuestions: Question[] = questionsData.map((q) => {
-          // ... (your existing mapping logic) ...
+          
+          // Find correct logo
+          const correctLogo = logosData.find((l) => l.id === q.correct_logo_id);
+
+          // Find Options (Handle null/undefined safely)
+          // Based on your DB, the column is "option_ids"
+          const rawOptionIds = q.option_ids || []; 
+          
+          const options = rawOptionIds
+            .map((id: string) => logosData.find((l) => l.id === id))
+            .filter((item): item is Logo => !!item) // Type-safe filter
+            .sort(() => Math.random() - 0.5);
+
           return {
             id: q.id,
             type: q.question_type,
@@ -184,6 +195,13 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           };
         });
 
+        // 2. SHUFFLE FIRST (Crucial Step)
+        // We shuffle *before* filtering unique logos. 
+        // This prevents the filter from deleting all "Image Options" if they happen 
+        // to appear after "Text Options" in the database.
+        formattedQuestions.sort(() => Math.random() - 0.5);
+
+        // 3. Unique Filter (Ensure each logo only appears once as an answer)
         const uniqueQuestions: Question[] = [];
         const seenLogoIds = new Set<string>();
 
@@ -194,21 +212,23 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
           }
         }
 
+        // 4. Separate Piles
         const textQs = uniqueQuestions.filter((q) => q.type === "text_options");
         const imageQs = uniqueQuestions.filter((q) => q.type === "image_options");
 
-        textQs.sort(() => Math.random() - 0.5);
-        imageQs.sort(() => Math.random() - 0.5);
-
+        // 5. Interleave Logic: 2 Image -> 2 Text -> Repeat
         const patternedQuestions: Question[] = [];
-        let t = 0;
-        let i = 0;
+        let t = 0; // Text Index
+        let i = 0; // Image Index
 
-        while (t < textQs.length || i < imageQs.length) {
-          if (t < textQs.length) patternedQuestions.push(textQs[t++]);
-          if (t < textQs.length) patternedQuestions.push(textQs[t++]);
+        while (i < imageQs.length || t < textQs.length) {
+          // Push 2 IMAGE Questions First
           if (i < imageQs.length) patternedQuestions.push(imageQs[i++]);
           if (i < imageQs.length) patternedQuestions.push(imageQs[i++]);
+
+          // Then Push 2 TEXT Questions
+          if (t < textQs.length) patternedQuestions.push(textQs[t++]);
+          if (t < textQs.length) patternedQuestions.push(textQs[t++]);
         }
 
         setQuestions(patternedQuestions);
@@ -282,7 +302,7 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
         {formatTime(timeLeft)}
       </div>
 
-      {/* FIX: Changed 'absolute' to 'fixed' to pin it to top-left of viewport */}
+      {/* Score */}
       <div className="fixed top-6 left-6 text-white text-lg font-bold z-20">
         Score: {score}
       </div>
@@ -301,16 +321,20 @@ export default function GameScreen({ username, onGameEnd }: GameScreenProps) {
             <div className="flex justify-center">
               <div className="w-48 h-48 bg-white rounded-2xl flex items-center justify-center p-4 shadow-xl">
                 <Image
-                  src={currentQuestion.logoImage || "/placeholder.svg"}
+                  src={
+                    currentQuestion.logoImage
+                      ? optimizeImage(currentQuestion.logoImage, 200)
+                      : "/placeholder.svg"
+                  }
                   alt="Logo"
                   width={200}
                   height={200}
                   className="object-contain w-full h-full"
                   priority
-                  loading="eager"
                   placeholder="blur"
                   blurDataURL={BLUR_DATA_URL}
                 />
+
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4 w-full">
